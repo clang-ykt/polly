@@ -504,6 +504,7 @@ bool ScopDetection::isValidCallInst(CallInst &CI,
 
   if (AllowModrefCall) {
     switch (AA->getModRefBehavior(CalledFunction)) {
+    case llvm::FMRB_DoesNotReadMemory: // carlo: placeholder to get rid of warning
     case llvm::FMRB_UnknownModRefBehavior:
       return false;
     case llvm::FMRB_DoesNotAccessMemory:
