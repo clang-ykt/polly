@@ -537,6 +537,8 @@ bool ScopDetection::isValidCallInst(CallInst &CI,
 
       Context.AST.add(&CI);
       return true;
+    case FMRB_DoesNotReadMemory:
+      return false;
     }
   }
 
