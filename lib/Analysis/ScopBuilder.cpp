@@ -307,7 +307,6 @@ bool ScopBuilder::buildAccessCallInst(MemAccInst Inst, Loop *L) {
   auto *AF = SE.getConstant(IntegerType::getInt64Ty(CI->getContext()), 0);
   auto *CalledFunction = CI->getCalledFunction();
   switch (AA.getModRefBehavior(CalledFunction)) {
-  case llvm::FMRB_DoesNotReadMemory: // carlo: placeholder to get rid of warning
   case llvm::FMRB_UnknownModRefBehavior:
     llvm_unreachable("Unknown mod ref behaviour cannot be represented.");
   case llvm::FMRB_DoesNotAccessMemory:
