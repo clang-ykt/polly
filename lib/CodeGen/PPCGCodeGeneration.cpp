@@ -263,15 +263,6 @@ public:
     compute_tagger(PPCGScop);
     compute_dependences(PPCGScop);
 
-    // Remove domain constraints from flow dependences.
-    //
-    // The isl scheduler does not terminate even for some smaller cases in case
-    // domain constraints remain within these dependences.
-    //
-    // TODO: Improve the isl scheduler to not handle this case better.
-    PPCGScop->dep_flow = isl_union_map_gist_domain(
-        PPCGScop->dep_flow, isl_union_set_copy(PPCGScop->domain));
-
     return PPCGScop;
   }
 
@@ -501,6 +492,20 @@ public:
     auto Id = isl_ast_node_get_annotation(Node);
 
     if (Id) {
+      bool IsUser = !strcmp(isl_id_get_name(Id), "user");
+
+      // If this is a user statement, format it ourselves as ppcg would
+      // otherwise try to call pet functionality that is not available in
+      // Polly.
+      if (IsUser) {
+        P = isl_printer_start_line(P);
+        P = isl_printer_print_ast_node(P, Node);
+        P = isl_printer_end_line(P);
+        isl_id_free(Id);
+        isl_ast_print_options_free(Options);
+        return P;
+      }
+
       auto Kernel = (struct ppcg_kernel *)isl_id_get_user(Id);
       isl_id_free(Id);
       Data->Kernels.push_back(Kernel);
@@ -581,6 +586,7 @@ public:
     // Set scheduling strategy to same strategy PPCG is using.
     isl_options_set_schedule_outer_coincidence(PPCGGen->ctx, true);
     isl_options_set_schedule_maximize_band_depth(PPCGGen->ctx, true);
+    isl_options_set_schedule_whole_component(PPCGGen->ctx, false);
 
     isl_schedule *Schedule = get_schedule(PPCGGen);
 
