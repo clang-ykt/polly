@@ -1625,7 +1625,7 @@ private:
   __isl_give isl_set *addNonEmptyDomainConstraints(__isl_take isl_set *C) const;
 
   /// @brief Simplify the SCoP representation
-  void simplifySCoP(bool AfterHoisting, DominatorTree &DT, LoopInfo &LI);
+  void simplifySCoP(bool AfterHoisting);
 
   /// @brief Return the access for the base ptr of @p MA if any.
   MemoryAccess *lookupBasePtrAccess(MemoryAccess *MA);
@@ -1938,6 +1938,9 @@ public:
   InvariantEquivClassesTy &getInvariantAccesses() {
     return InvariantEquivClasses;
   }
+
+  /// @brief Check if the scop has any invariant access.
+  bool hasInvariantAccesses() { return !InvariantEquivClasses.empty(); }
 
   /// @brief Mark the SCoP as optimized by the scheduler.
   void markAsOptimized() { IsOptimized = true; }
