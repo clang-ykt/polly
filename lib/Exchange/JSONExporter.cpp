@@ -62,13 +62,13 @@ struct JSONExporter : public ScopPass {
   std::string getFileName(Scop &S) const;
   Json::Value getJSON(Scop &S) const;
 
-  /// @brief Export the SCoP @p S to a JSON file.
+  /// Export the SCoP @p S to a JSON file.
   bool runOnScop(Scop &S) override;
 
-  /// @brief Print the SCoP @p S as it is exported.
+  /// Print the SCoP @p S as it is exported.
   void printScop(raw_ostream &OS, Scop &S) const override;
 
-  /// @brief Register all analyses and transformation required.
+  /// Register all analyses and transformation required.
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 };
 
@@ -116,13 +116,13 @@ struct JSONImporter : public ScopPass {
 
   std::string getFileName(Scop &S) const;
 
-  /// @brief Import new access functions for SCoP @p S from a JSON file.
+  /// Import new access functions for SCoP @p S from a JSON file.
   bool runOnScop(Scop &S) override;
 
-  /// @brief Print the SCoP @p S and the imported access functions.
+  /// Print the SCoP @p S and the imported access functions.
   void printScop(raw_ostream &OS, Scop &S) const override;
 
-  /// @brief Register all analyses and transformation required.
+  /// Register all analyses and transformation required.
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 };
 } // namespace
@@ -152,7 +152,12 @@ Json::Value exportArrays(const Scop &S) {
 
     Json::Value Array;
     Array["name"] = SAI->getName();
-    for (unsigned i = 1; i < SAI->getNumberOfDimensions(); i++) {
+    unsigned i = 0;
+    if (!SAI->getDimensionSize(i)) {
+      Array["sizes"].append("*");
+      i++;
+    }
+    for (; i < SAI->getNumberOfDimensions(); i++) {
       SAI->getDimensionSize(i)->print(RawStringOstream);
       Array["sizes"].append(RawStringOstream.str());
       Buffer.clear();
@@ -289,6 +294,8 @@ bool JSONImporter::importSchedule(Scop &S, Json::Value &JScop,
   int Index = 0;
   for (ScopStmt &Stmt : S) {
     Json::Value Schedule = JScop["statements"][Index]["schedule"];
+    assert(!Schedule.asString().empty() &&
+           "Schedules that contain extension nodes require special handling.");
     isl_map *Map = isl_map_read_from_str(S.getIslCtx(), Schedule.asCString());
     isl_space *Space = Stmt.getDomainSpace();
 
@@ -348,7 +355,11 @@ bool JSONImporter::importAccesses(Scop &S, Json::Value &JScop,
 
       isl_id *NewOutId;
 
-      if (MA->isArrayKind()) {
+      // If the NewAccessMap has zero dimensions, it is the scalar access; it
+      // must be the same as before.
+      // If it has at least one dimension, it's an array access; search for its
+      // ScopArrayInfo.
+      if (isl_map_dim(NewAccessMap, isl_dim_out) >= 1) {
         NewOutId = isl_map_get_tuple_id(NewAccessMap, isl_dim_out);
         auto *SAI = S.getArrayInfoByName(isl_id_get_name(NewOutId));
         isl_id *OutId = isl_map_get_tuple_id(CurrentAccessMap, isl_dim_out);
@@ -376,12 +387,14 @@ bool JSONImporter::importAccesses(Scop &S, Json::Value &JScop,
         bool SpecialAlignment = true;
         if (LoadInst *LoadI = dyn_cast<LoadInst>(MA->getAccessInstruction())) {
           SpecialAlignment =
+              LoadI->getAlignment() &&
               DL.getABITypeAlignment(LoadI->getType()) != LoadI->getAlignment();
         } else if (StoreInst *StoreI =
                        dyn_cast<StoreInst>(MA->getAccessInstruction())) {
           SpecialAlignment =
+              StoreI->getAlignment() &&
               DL.getABITypeAlignment(StoreI->getValueOperand()->getType()) !=
-              StoreI->getAlignment();
+                  StoreI->getAlignment();
         }
 
         if (SpecialAlignment) {
@@ -463,7 +476,7 @@ bool JSONImporter::importAccesses(Scop &S, Json::Value &JScop,
   return true;
 }
 
-/// @brief Check whether @p SAI and @p Array represent the same array.
+/// Check whether @p SAI and @p Array represent the same array.
 bool areArraysEqual(ScopArrayInfo *SAI, Json::Value Array) {
   std::string Buffer;
   llvm::raw_string_ostream RawStringOstream(Buffer);
@@ -471,11 +484,11 @@ bool areArraysEqual(ScopArrayInfo *SAI, Json::Value Array) {
   if (SAI->getName() != Array["name"].asCString())
     return false;
 
-  if (SAI->getNumberOfDimensions() != Array["sizes"].size() + 1)
+  if (SAI->getNumberOfDimensions() != Array["sizes"].size())
     return false;
 
-  for (unsigned i = 0; i < Array["sizes"].size(); i++) {
-    SAI->getDimensionSize(i + 1)->print(RawStringOstream);
+  for (unsigned i = 1; i < Array["sizes"].size(); i++) {
+    SAI->getDimensionSize(i)->print(RawStringOstream);
     if (RawStringOstream.str() != Array["sizes"][i].asCString())
       return false;
     Buffer.clear();
@@ -488,7 +501,7 @@ bool areArraysEqual(ScopArrayInfo *SAI, Json::Value Array) {
   return true;
 }
 
-/// @brief Get the accepted primitive type from its textual representation
+/// Get the accepted primitive type from its textual representation
 ///        @p TypeTextRepresentation.
 ///
 /// @param TypeTextRepresentation The textual representation of the type.

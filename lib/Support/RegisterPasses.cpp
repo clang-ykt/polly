@@ -24,6 +24,7 @@
 #include "polly/CodeGen/CodeGeneration.h"
 #include "polly/CodeGen/CodegenCleanup.h"
 #include "polly/DependenceInfo.h"
+#include "polly/FlattenSchedule.h"
 #include "polly/LinkAllPasses.h"
 #include "polly/Options.h"
 #include "polly/PolyhedralInfo.h"
@@ -79,13 +80,14 @@ static cl::opt<OptimizerChoice> Optimizer(
     cl::Hidden, cl::init(OPTIMIZER_ISL), cl::ZeroOrMore,
     cl::cat(PollyCategory));
 
-enum CodeGenChoice { CODEGEN_ISL, CODEGEN_NONE };
-static cl::opt<CodeGenChoice> CodeGenerator(
-    "polly-code-generator", cl::desc("Select the code generator"),
-    cl::values(clEnumValN(CODEGEN_ISL, "isl", "isl code generator"),
-               clEnumValN(CODEGEN_NONE, "none", "no code generation"),
+enum CodeGenChoice { CODEGEN_FULL, CODEGEN_AST, CODEGEN_NONE };
+static cl::opt<CodeGenChoice> CodeGeneration(
+    "polly-code-generation", cl::desc("How much code-generation to perform"),
+    cl::values(clEnumValN(CODEGEN_FULL, "full", "AST and IR generation"),
+               clEnumValN(CODEGEN_AST, "ast", "Only AST generation"),
+               clEnumValN(CODEGEN_NONE, "none", "No code generation"),
                clEnumValEnd),
-    cl::Hidden, cl::init(CODEGEN_ISL), cl::ZeroOrMore, cl::cat(PollyCategory));
+    cl::Hidden, cl::init(CODEGEN_FULL), cl::ZeroOrMore, cl::cat(PollyCategory));
 
 enum TargetChoice { TARGET_CPU, TARGET_GPU };
 static cl::opt<TargetChoice>
@@ -179,9 +181,10 @@ void initializePollyPasses(PassRegistry &Registry) {
   initializeScopInfoRegionPassPass(Registry);
   initializeScopInfoWrapperPassPass(Registry);
   initializeCodegenCleanupPass(Registry);
+  initializeFlattenSchedulePass(Registry);
 }
 
-/// @brief Register Polly passes such that they form a polyhedral optimizer.
+/// Register Polly passes such that they form a polyhedral optimizer.
 ///
 /// The individual Polly passes are registered in the pass manager such that
 /// they form a full polyhedral optimizer. The flow of the optimizer starts with
@@ -253,8 +256,11 @@ void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
     PM.add(polly::createPPCGCodeGenerationPass());
 #endif
   } else {
-    switch (CodeGenerator) {
-    case CODEGEN_ISL:
+    switch (CodeGeneration) {
+    case CODEGEN_AST:
+      PM.add(polly::createIslAstInfoPass());
+      break;
+    case CODEGEN_FULL:
       PM.add(polly::createCodeGenerationPass());
       break;
     case CODEGEN_NONE:
@@ -268,7 +274,7 @@ void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
   PM.add(createBarrierNoopPass());
 
   if (CFGPrinter)
-    PM.add(llvm::createCFGPrinterPass());
+    PM.add(llvm::createCFGPrinterLegacyPassPass());
 
   if (Target == TARGET_GPU) {
     // Invariant load hoisting not yet supported by GPU code generation.
@@ -328,7 +334,7 @@ registerPollyScalarOptimizerLatePasses(const llvm::PassManagerBuilder &Builder,
   PM.add(createCodegenCleanupPass());
 }
 
-/// @brief Register Polly to be available as an optimizer
+/// Register Polly to be available as an optimizer
 ///
 ///
 /// We can currently run Polly at three different points int the pass manager.

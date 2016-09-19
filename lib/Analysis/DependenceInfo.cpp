@@ -87,7 +87,7 @@ static cl::opt<Dependences::AnalyisLevel> OptAnalysisLevel(
 
 //===----------------------------------------------------------------------===//
 
-/// @brief Tag the @p Relation domain with @p TagId
+/// Tag the @p Relation domain with @p TagId
 static __isl_give isl_map *tag(__isl_take isl_map *Relation,
                                __isl_take isl_id *TagId) {
   isl_space *Space = isl_map_get_space(Relation);
@@ -98,7 +98,7 @@ static __isl_give isl_map *tag(__isl_take isl_map *Relation,
   return Relation;
 }
 
-/// @brief Tag the @p Relation domain with either MA->getArrayId() or
+/// Tag the @p Relation domain with either MA->getArrayId() or
 ///        MA->getId() based on @p TagLevel
 static __isl_give isl_map *tag(__isl_take isl_map *Relation, MemoryAccess *MA,
                                Dependences::AnalyisLevel TagLevel) {
@@ -112,7 +112,7 @@ static __isl_give isl_map *tag(__isl_take isl_map *Relation, MemoryAccess *MA,
   return Relation;
 }
 
-/// @brief Collect information about the SCoP @p S.
+/// Collect information about the SCoP @p S.
 static void collectInfo(Scop &S, isl_union_map **Read, isl_union_map **Write,
                         isl_union_map **MayWrite,
                         isl_union_map **AccessSchedule,
@@ -153,6 +153,8 @@ static void collectInfo(Scop &S, isl_union_map **Read, isl_union_map **Write,
         // to match the new access domains, thus we need
         //   [Stmt[i0, i1] -> MemAcc_A[i0 + i1]] -> [0, i0, 2, i1, 0]
         isl_map *Schedule = Stmt.getSchedule();
+        assert(Schedule && "Schedules that contain extension nodes require "
+                           "special handling.");
         Schedule = isl_map_apply_domain(
             Schedule,
             isl_map_reverse(isl_map_domain_map(isl_map_copy(accdom))));
@@ -162,7 +164,10 @@ static void collectInfo(Scop &S, isl_union_map **Read, isl_union_map **Write,
       } else {
         accdom = tag(accdom, MA, Level);
         if (Level > Dependences::AL_Statement) {
-          isl_map *Schedule = tag(Stmt.getSchedule(), MA, Level);
+          auto *StmtScheduleMap = Stmt.getSchedule();
+          assert(StmtScheduleMap && "Schedules that contain extension nodes "
+                                    "require special handling.");
+          isl_map *Schedule = tag(StmtScheduleMap, MA, Level);
           *StmtSchedule = isl_union_map_add_map(*StmtSchedule, Schedule);
         }
       }
@@ -173,7 +178,7 @@ static void collectInfo(Scop &S, isl_union_map **Read, isl_union_map **Write,
         *Write = isl_union_map_add_map(*Write, accdom);
     }
 
-    if (Level == Dependences::AL_Statement)
+    if (!ReductionBaseValues.empty() && Level == Dependences::AL_Statement)
       *StmtSchedule = isl_union_map_add_map(*StmtSchedule, Stmt.getSchedule());
   }
 
@@ -185,7 +190,7 @@ static void collectInfo(Scop &S, isl_union_map **Read, isl_union_map **Write,
   *MayWrite = isl_union_map_coalesce(*MayWrite);
 }
 
-/// @brief Fix all dimension of @p Zero to 0 and add it to @p user
+/// Fix all dimension of @p Zero to 0 and add it to @p user
 static isl_stat fixSetToZero(__isl_take isl_set *Zero, void *user) {
   isl_union_set **User = (isl_union_set **)user;
   for (unsigned i = 0; i < isl_set_dim(Zero, isl_dim_set); i++)
@@ -194,7 +199,7 @@ static isl_stat fixSetToZero(__isl_take isl_set *Zero, void *user) {
   return isl_stat_ok;
 }
 
-/// @brief Compute the privatization dependences for a given dependency @p Map
+/// Compute the privatization dependences for a given dependency @p Map
 ///
 /// Privatization dependences are widened original dependences which originate
 /// or end in a reduction access. To compute them we apply the transitive close
@@ -335,13 +340,15 @@ void Dependences::calculateDependences(Scop &S) {
   collectInfo(S, &Read, &Write, &MayWrite, &AccessSchedule, &StmtSchedule,
               Level);
 
+  bool HasReductions = !isl_union_map_is_empty(AccessSchedule);
+
   DEBUG(dbgs() << "Read: " << Read << '\n';
         dbgs() << "Write: " << Write << '\n';
         dbgs() << "MayWrite: " << MayWrite << '\n';
         dbgs() << "AccessSchedule: " << AccessSchedule << '\n';
         dbgs() << "StmtSchedule: " << StmtSchedule << '\n';);
 
-  if (isl_union_map_is_empty(AccessSchedule)) {
+  if (!HasReductions) {
     isl_union_map_free(AccessSchedule);
     Schedule = S.getScheduleTree();
     // Tag the schedule tree if we want fine-grain dependence info
@@ -444,6 +451,15 @@ void Dependences::calculateDependences(Scop &S) {
   isl_ctx_reset_operations(IslCtx.get());
   isl_ctx_set_max_operations(IslCtx.get(), MaxOpsOld);
 
+  // Drop out early, as the remaining computations are only needed for
+  // reduction dependences or dependences that are finer than statement
+  // level dependences.
+  if (!HasReductions && Level == AL_Statement) {
+    TC_RED = isl_union_map_empty(isl_union_map_get_space(StmtSchedule));
+    isl_union_map_free(StmtSchedule);
+    return;
+  }
+
   isl_union_map *STMT_RAW, *STMT_WAW, *STMT_WAR;
   STMT_RAW = isl_union_map_intersect_domain(
       isl_union_map_copy(RAW),
@@ -526,8 +542,10 @@ void Dependences::calculateDependences(Scop &S) {
       isl_set *AccDomW = isl_map_wrap(MA->getAccessRelation());
       isl_union_map *AccRedDepU = isl_union_map_intersect_domain(
           isl_union_map_copy(TC_RED), isl_union_set_from_set(AccDomW));
-      if (isl_union_map_is_empty(AccRedDepU) && !isl_union_map_free(AccRedDepU))
+      if (isl_union_map_is_empty(AccRedDepU)) {
+        isl_union_map_free(AccRedDepU);
         continue;
+      }
 
       isl_map *AccRedDep = isl_map_from_union_map(AccRedDepU);
       RED_SIN = isl_union_map_add_map(RED_SIN, isl_map_copy(AccRedDep));
@@ -597,6 +615,8 @@ bool Dependences::isValidSchedule(Scop &S,
       StmtScat = Stmt.getSchedule();
     else
       StmtScat = isl_map_copy((*NewSchedule)[&Stmt]);
+    assert(StmtScat &&
+           "Schedules that contain extension nodes require special handling.");
 
     if (!ScheduleSpace)
       ScheduleSpace = isl_space_range(isl_map_get_space(StmtScat));
@@ -780,7 +800,7 @@ bool DependenceInfo::runOnScop(Scop &ScopVar) {
   return false;
 }
 
-/// @brief Print the dependences for the given SCoP to @p OS.
+/// Print the dependences for the given SCoP to @p OS.
 
 void polly::DependenceInfo::printScop(raw_ostream &OS, Scop &S) const {
   if (auto d = D[OptAnalysisLevel].get()) {

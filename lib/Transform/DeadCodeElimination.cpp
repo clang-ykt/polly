@@ -59,14 +59,14 @@ public:
   static char ID;
   explicit DeadCodeElim() : ScopPass(ID) {}
 
-  /// @brief Remove dead iterations from the schedule of @p S.
+  /// Remove dead iterations from the schedule of @p S.
   bool runOnScop(Scop &S) override;
 
-  /// @brief Register all analyses and transformation required.
+  /// Register all analyses and transformation required.
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 
 private:
-  /// @brief Return the set of live iterations.
+  /// Return the set of live iterations.
   ///
   /// The set of live iterations are all iterations that write to memory and for
   /// which we can not prove that there will be a later write that _must_
@@ -92,6 +92,8 @@ char DeadCodeElim::ID = 0;
 // no point in trying to remove them from the live-out set.
 __isl_give isl_union_set *DeadCodeElim::getLiveOut(Scop &S) {
   isl_union_map *Schedule = S.getSchedule();
+  assert(Schedule &&
+         "Schedules that contain extension nodes require special handling.");
   isl_union_map *WriteIterations = isl_union_map_reverse(S.getMustWrites());
   isl_union_map *WriteTimes =
       isl_union_map_apply_range(WriteIterations, isl_union_map_copy(Schedule));

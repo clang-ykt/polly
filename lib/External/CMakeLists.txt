@@ -256,26 +256,28 @@ set (ISL_FILES
     isl/imath/imrat.c
     )
 
-add_polly_library(PollyISL FORCE_STATIC
+add_polly_library(PollyISL
   ${ISL_FILES}
 )
+
+if (MSVC)
+  # Disable common warnings; ideally, they should be fixed upstream
+  target_compile_options(PollyISL PRIVATE
+    -wd4018 # 'expression' : signed/unsigned mismatch
+    -wd4090 # 'operation' : different 'modifier' qualifiers
+    -wd4200 # nonstandard extension used: zero-sized array in struct/union
+    -wd4201 # nonstandard extension used: nameless struct/union
+    -wd4334 # 'operator': result of 32-bit shift implicitly converted to 64 bits (was 64-bit shift intended?)
+  )
+endif ()
 
 # ISL requires at least C99 to compile. gcc < 5.0 use -std=gnu89 as default.
 target_enable_c99(PollyISL)
 
-# Define the FLAGS for the compilation of isl and imath
-#
-# We first set the visibility of all isl functions to hidden to ensure we do
-# not clash with other isl versions that got linked into a program that uses
-# Polly. (This happens e.g when linking Polly with dragonegg)
-#
-# This is the reason for the FORCE_STATIC flag above; without it, not even Polly
-# could access ISL's symbols in shared library builds.
-#
-# We also disable warnings which should be coped with upstream.
+# Disable warnings which should be coped with upstream for isl and imath.
 if (NOT MSVC)
   set_target_properties(PollyISL PROPERTIES
-    COMPILE_FLAGS "-fvisibility=hidden -w"
+    COMPILE_FLAGS "-w"
   )
 endif ()
 
@@ -321,12 +323,14 @@ include_directories(BEFORE
   ${PET_SOURCE_DIR}/include
 )
 
-add_polly_library(PollyPPCG FORCE_STATIC
+add_polly_library(PollyPPCG
   ${PPCG_FILES}
 )
 
+target_link_libraries(PollyPPCG PollyISL)
+
 if (NOT MSVC)
   set_target_properties(PollyPPCG PROPERTIES
-    COMPILE_FLAGS "-fvisibility=hidden -w"
+    COMPILE_FLAGS "-w"
   )
 endif ()
