@@ -670,7 +670,7 @@ void BlockGenerator::createExitPHINodeMerges(Scop &S) {
     // the original PHI's value or the reloaded incoming values from the
     // generated code. An llvm::Value is merged between the original code's
     // value or the generated one.
-    if (!SAI->isValueKind() && !SAI->isExitPHIKind())
+    if (!SAI->isExitPHIKind())
       continue;
 
     PHINode *PHI = dyn_cast<PHINode>(Val);
@@ -1193,7 +1193,7 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
 
   // Iterate over all blocks in the region in a breadth-first search.
   std::deque<BasicBlock *> Blocks;
-  SmallPtrSet<BasicBlock *, 8> SeenBlocks;
+  SmallSetVector<BasicBlock *, 8> SeenBlocks;
   Blocks.push_back(EntryBB);
   SeenBlocks.insert(EntryBB);
 
@@ -1232,7 +1232,7 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
 
     // And continue with new successors inside the region.
     for (auto SI = succ_begin(BB), SE = succ_end(BB); SI != SE; SI++)
-      if (R->contains(*SI) && SeenBlocks.insert(*SI).second)
+      if (R->contains(*SI) && SeenBlocks.insert(*SI))
         Blocks.push_back(*SI);
 
     // Remember value in case it is visible after this subregion.

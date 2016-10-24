@@ -65,7 +65,7 @@ if (HAS_ATTRIBUTE_WARN_UNUSED_RESULT)
 endif ()
 
 check_c_source_compiles("
-  static void foo(void) __attribute__ ((unused));
+  __attribute__ ((unused)) static void foo(void);
   int main() { return 0; }
   " HAVE___ATTRIBUTE__)
 
@@ -76,12 +76,12 @@ check_c_source_compiles_numeric("
   " HAVE_DECL_FFS)
 
 check_c_source_compiles_numeric("
-  int main() { __builtin_ffs(0); return 0; }
+  int main() { (void)__builtin_ffs(0); return 0; }
   " HAVE_DECL___BUILTIN_FFS)
 
 check_c_source_compiles_numeric("
   #include <intrin.h>
-  int main() { _BitScanForward(NULL, 0); return 0; }
+  int main() { (void)_BitScanForward(NULL, 0); return 0; }
   " HAVE_DECL__BITSCANFORWARD)
 
 if (NOT HAVE_DECL_FFS AND
@@ -98,7 +98,7 @@ check_c_source_compiles_numeric("
 
 check_c_source_compiles_numeric("
   #include <string.h>
-  int main() { _stricmp(\"\", \"\"); return 0; }
+  int main() { (void)_stricmp(\"\", \"\"); return 0; }
   " HAVE_DECL__STRICMP)
 
 if (NOT HAVE_DECL_STRCASECMP AND NOT HAVE_DECL__STRICMP)
@@ -113,7 +113,7 @@ check_c_source_compiles_numeric("
 
 check_c_source_compiles_numeric("
   #include <string.h>
-  int main() { _strnicmp(\"\", \"\", 0); return 0; }
+  int main() { (void)_strnicmp(\"\", \"\", 0); return 0; }
   " HAVE_DECL__STRNICMP)
 
 if (NOT HAVE_DECL_STRNCASECMP AND NOT HAVE_DECL__STRNICMP)
@@ -123,12 +123,12 @@ endif ()
 
 check_c_source_compiles_numeric("
   #include <stdio.h>
-  int main() { snprintf((void*)0, 0, \"\"); return 0; }
+  int main() { snprintf((void*)0, 0, \" \"); return 0; }
   " HAVE_DECL_SNPRINTF)
 
 check_c_source_compiles_numeric("
   #include <stdio.h>
-  int main() { _snprintf((void*)0, 0, \"\"); return 0; }
+  int main() { _snprintf((void*)0, 0, \" \"); return 0; }
   " HAVE_DECL__SNPRINTF)
 
 if (NOT HAVE_DECL_SNPRINTF AND NOT HAVE_DECL__SNPRINTF)
@@ -231,6 +231,7 @@ set (ISL_FILES
     isl/isl_scan.c
     isl/isl_schedule.c
     isl/isl_schedule_band.c
+    isl/isl_schedule_constraints.c
     isl/isl_schedule_node.c
     isl/isl_schedule_read.c
     isl/isl_schedule_tree.c
@@ -260,26 +261,18 @@ add_polly_library(PollyISL
   ${ISL_FILES}
 )
 
-if (MSVC)
-  # Disable common warnings; ideally, they should be fixed upstream
-  target_compile_options(PollyISL PRIVATE
-    -wd4018 # 'expression' : signed/unsigned mismatch
-    -wd4090 # 'operation' : different 'modifier' qualifiers
-    -wd4200 # nonstandard extension used: zero-sized array in struct/union
-    -wd4201 # nonstandard extension used: nameless struct/union
-    -wd4334 # 'operator': result of 32-bit shift implicitly converted to 64 bits (was 64-bit shift intended?)
-  )
-endif ()
+add_executable(polly-isl-test
+  isl/isl_test.c
+)
+set_target_properties(polly-isl-test PROPERTIES FOLDER "Polly")
+
+target_link_libraries(polly-isl-test
+  PollyISL
+)
 
 # ISL requires at least C99 to compile. gcc < 5.0 use -std=gnu89 as default.
 target_enable_c99(PollyISL)
-
-# Disable warnings which should be coped with upstream for isl and imath.
-if (NOT MSVC)
-  set_target_properties(PollyISL PROPERTIES
-    COMPILE_FLAGS "-w"
-  )
-endif ()
+target_enable_c99(polly-isl-test)
 
 set(PET_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/pet")
 set(PPCG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ppcg")
@@ -329,8 +322,26 @@ add_polly_library(PollyPPCG
 
 target_link_libraries(PollyPPCG PollyISL)
 
-if (NOT MSVC)
-  set_target_properties(PollyPPCG PROPERTIES
+# Disable warnings for upstream projects.
+if (MSVC)
+  set(DISABLE_WARNING_FLAGS
+    -wd4018 # 'expression' : signed/unsigned mismatch
+    -wd4090 # 'operation' : different 'modifier' qualifiers
+    -wd4200 # nonstandard extension used: zero-sized array in struct/union
+    -wd4201 # nonstandard extension used: nameless struct/union
+    -wd4334 # 'operator': result of 32-bit shift implicitly converted to 64 bits (was 64-bit shift intended?)
+  )
+  target_compile_options(PollyISL PRIVATE ${DISABLE_WARNING_FLAGS})
+  target_compile_options(polly-isl-test PRIVATE ${DISABLE_WARNING_FLAGS})
+  target_compile_options(PollyPPCG PRIVATE ${DISABLE_WARNING_FLAGS})
+else ()
+  set_target_properties(PollyISL polly-isl-test PollyPPCG PROPERTIES
     COMPILE_FLAGS "-w"
   )
+endif ()
+
+if(MSVC)
+  # In the Windows API (with some exceptions), the maximum length for a path is
+  # MAX_PATH, which is defined as 260 characters. 
+  target_compile_definitions(PollyPPCG PUBLIC "-DPATH_MAX=260")
 endif ()

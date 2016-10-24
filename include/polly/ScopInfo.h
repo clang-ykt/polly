@@ -270,7 +270,7 @@ public:
   const ScopArrayInfo *getBasePtrOriginSAI() const { return BasePtrOriginSAI; }
 
   /// The set of derived indirect SAIs for this origin SAI.
-  const SmallPtrSetImpl<ScopArrayInfo *> &getDerivedSAIs() const {
+  const SmallSetVector<ScopArrayInfo *, 2> &getDerivedSAIs() const {
     return DerivedSAIs;
   }
 
@@ -369,7 +369,7 @@ private:
   const ScopArrayInfo *BasePtrOriginSAI;
 
   /// For origin SAIs the set of derived indirect SAIs.
-  SmallPtrSet<ScopArrayInfo *, 2> DerivedSAIs;
+  SmallSetVector<ScopArrayInfo *, 2> DerivedSAIs;
 
   /// The base pointer.
   AssertingVH<Value> BasePtr;
@@ -1752,9 +1752,6 @@ private:
   /// Add parameter constraints to @p C that imply a non-empty domain.
   __isl_give isl_set *addNonEmptyDomainConstraints(__isl_take isl_set *C) const;
 
-  /// Simplify the SCoP representation
-  void simplifySCoP(bool AfterHoisting);
-
   /// Return the access for the base ptr of @p MA if any.
   MemoryAccess *lookupBasePtrAccess(MemoryAccess *MA);
 
@@ -2443,6 +2440,13 @@ public:
   ///
   /// @return true if @p Schedule contains extension nodes.
   static bool containsExtensionNode(__isl_keep isl_schedule *Schedule);
+
+  /// Simplify the SCoP representation.
+  ///
+  /// @param AfterHoisting Whether it is called after invariant load hoisting.
+  ///                      When true, also removes statements without
+  ///                      side-effects.
+  void simplifySCoP(bool AfterHoisting);
 };
 
 /// Print Scop scop to raw_ostream O.
