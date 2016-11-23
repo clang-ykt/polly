@@ -28,6 +28,8 @@ using namespace polly;
 
 STATISTIC(ScopFound, "Number of valid Scops");
 STATISTIC(RichScopFound, "Number of Scops containing a loop");
+STATISTIC(InfeasibleScops,
+          "Number of SCoPs with statically infeasible context.");
 
 // If the loop is nonaffine/boxed, return the first non-boxed surrounding loop
 // for Polly. If the loop is affine, return the loop itself. Do not call
@@ -428,7 +430,7 @@ void ScopBuilder::buildAccessFunctions(Region &SR) {
 void ScopBuilder::buildStmts(Region &SR) {
 
   if (scop->isNonAffineSubRegion(&SR)) {
-    scop->addScopStmt(nullptr, &SR);
+    scop->addScopStmt(&SR);
     return;
   }
 
@@ -436,7 +438,7 @@ void ScopBuilder::buildStmts(Region &SR) {
     if (I->isSubRegion())
       buildStmts(*I->getNodeAs<Region>());
     else
-      scop->addScopStmt(I->getNodeAs<BasicBlock>(), nullptr);
+      scop->addScopStmt(I->getNodeAs<BasicBlock>());
 }
 
 void ScopBuilder::buildAccessFunctions(BasicBlock &BB,
@@ -687,6 +689,7 @@ ScopBuilder::ScopBuilder(Region *R, AssumptionCache &AC, AliasAnalysis &AA,
   DEBUG(scop->print(dbgs()));
 
   if (!scop->hasFeasibleRuntimeContext()) {
+    InfeasibleScops++;
     Msg = "SCoP ends here but was dismissed.";
     scop.reset();
   } else {
